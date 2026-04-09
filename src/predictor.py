@@ -18,8 +18,8 @@ import numpy as np
 import pandas as pd
 import joblib
 from scipy.stats import poisson
-from feature_engineering import get_team_stats_before, FEATURE_COLS
-
+from feature_engineering import get_team_stats_before
+from model import FEATURE_COLS
 
 def predict_match(home_team, away_team, df_historical, date=None):
     """
@@ -61,17 +61,37 @@ def predict_match(home_team, away_team, df_historical, date=None):
     all_home   = get_team_stats_before(df_historical, home_team, date, "both")
     all_away   = get_team_stats_before(df_historical, away_team, date, "both")
 
+    standings = {}
+    try:
+        # Reconstruire le classement depuis les données historiques
+        from feature_engineering import compute_standings
+        standings = compute_standings(df_historical, date)
+    except Exception:
+        pass
+
+    n_teams        = len(standings) if standings else 20
+    home_rank      = standings.get(home_team, 10)
+    away_rank      = standings.get(away_team, 10)
+    home_rank_norm = (home_rank - 1) / max(n_teams - 1, 1)
+    away_rank_norm = (away_rank - 1) / max(n_teams - 1, 1)
+
     X = np.array([[
-        home_stats["goals_scored_mean"],
-        away_stats["goals_scored_mean"],
-        home_stats["goals_conceded_mean"],
-        away_stats["goals_conceded_mean"],
-        all_home["points_sum"],
-        all_away["points_sum"],
-        home_stats["goals_scored_mean"]   - away_stats["goals_scored_mean"],
-        away_stats["goals_conceded_mean"] - home_stats["goals_conceded_mean"],
-        all_home["points_sum"]            - all_away["points_sum"],
-        np.nan,  # home_shots_target (non disponible pré-match)
+        home_stats['goals_scored_mean'],
+        away_stats['goals_scored_mean'],
+        home_stats['goals_conceded_mean'],
+        away_stats['goals_conceded_mean'],
+        all_home['points_sum'],
+        all_away['points_sum'],
+        home_stats['goals_scored_mean']   - away_stats['goals_scored_mean'],
+        away_stats['goals_conceded_mean'] - home_stats['goals_conceded_mean'],
+        all_home['points_sum']            - all_away['points_sum'],
+        # Nouvelles features
+        away_rank_norm - home_rank_norm,
+        home_rank_norm,
+        away_rank_norm,
+        home_stats['goals_scored_mean'] / max(away_stats['goals_conceded_mean'], 0.3),
+        away_stats['goals_scored_mean'] / max(home_stats['goals_conceded_mean'], 0.3),
+        np.nan,  # home_shots_target
         np.nan,  # away_shots_target
     ]])
 

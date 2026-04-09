@@ -70,6 +70,45 @@ def get_team_stats_before(df, team, date, venue="both", window=10):
     }
 
 
+def compute_standings(df, date):
+    """
+    Calcule le classement de toutes les équipes AVANT une date donnée,
+    à partir des matchs joués jusqu'à cette date.
+
+    Retourne un dict : {nom_equipe: rang}  (1 = premier, 20 = dernier)
+    """
+    past = df[df['date'] < date].copy()
+
+    if len(past) == 0:
+        return {}
+
+    teams = pd.concat([past['home_team'], past['away_team']]).unique()
+    points = {t: 0 for t in teams}
+    gd     = {t: 0 for t in teams}  # goal difference
+
+    for _, row in past.iterrows():
+        h, a   = row['home_team'], row['away_team']
+        hg, ag = row['home_goals'], row['away_goals']
+
+        gd[h] += hg - ag
+        gd[a] += ag - hg
+
+        if hg > ag:
+            points[h] += 3
+        elif hg == ag:
+            points[h] += 1
+            points[a] += 1
+        else:
+            points[a] += 3
+
+    standings = pd.DataFrame({'points': points, 'gd': gd})
+    standings = standings.sort_values(
+        ['points', 'gd'], ascending=False
+    )
+    standings['rang'] = range(1, len(standings) + 1)
+
+    return standings['rang'].to_dict()
+
 def build_match_features(df):
     """
     Construit le DataFrame de features pour tous les matchs du dataset.
@@ -92,6 +131,16 @@ def build_match_features(df):
         all_home    = get_team_stats_before(df, match["home_team"], match["date"], "both")
         all_away    = get_team_stats_before(df, match["away_team"], match["date"], "both")
 
+        # Classement dynamique à la date du match
+        standings = compute_standings(df, match['date'])
+        home_rank = standings.get(match['home_team'], 10)
+        away_rank = standings.get(match['away_team'], 10)
+        n_teams   = len(standings) if standings else 20
+
+        # Normalisation : 0 = premier, 1 = dernier
+        home_rank_norm = (home_rank - 1) / max(n_teams - 1, 1)
+        away_rank_norm = (away_rank - 1) / max(n_teams - 1, 1)
+
         row = {
             # --- Tier 1 : Offensif ---
             "home_goals_avg":          home_stats["goals_scored_mean"],
@@ -110,6 +159,12 @@ def build_match_features(df):
             "defense_diff":            away_stats["goals_conceded_mean"] - home_stats["goals_conceded_mean"],
             "form_diff":               all_home["points_sum"]            - all_away["points_sum"],
 
+            # --- Tier 1 : Classement ---
+            'classement_diff':     away_rank_norm - home_rank_norm,
+            'home_rank_norm':      home_rank_norm,
+            'away_rank_norm':      away_rank_norm,
+
+
             # --- Tier 2 : Tirs cadrés (si disponibles) ---
             "home_shots_target":       match.get("home_shots_target", np.nan),
             "away_shots_target":       match.get("away_shots_target", np.nan),
@@ -122,6 +177,17 @@ def build_match_features(df):
 
             # --- Variable cible ---
             "target":                  match["target"],
+
+           
+            # --- Tier 2 : Ratio croise attaque/defense ---
+            'home_attack_vs_away_def': (
+                home_stats['goals_scored_mean'] /
+                max(away_stats['goals_conceded_mean'], 0.3)
+            ),
+            'away_attack_vs_home_def': (
+                away_stats['goals_scored_mean'] /
+                max(home_stats['goals_conceded_mean'], 0.3)
+            ),
         }
         features.append(row)
 

@@ -4,7 +4,7 @@ model.py
 Entraînement, validation et sauvegarde du modèle XGBoost.
 
 Stratégie de validation : TimeSeriesSplit (validation croisée temporelle)
-— on entraîne toujours sur le passé, on valide sur le futur immédiat.
+ on entraîne toujours sur le passé, on valide sur le futur immédiat.
 Jamais de split aléatoire sur des données temporelles !
 
 Utilisation :
@@ -29,17 +29,33 @@ import os
 
 # Colonnes utilisées comme features (dans l'ordre)
 FEATURE_COLS = [
-    "home_goals_avg",
-    "away_goals_avg",
-    "home_goals_conceded_avg",
-    "away_goals_conceded_avg",
-    "home_form",
-    "away_form",
-    "goals_diff",
-    "defense_diff",
-    "form_diff",
-    "home_shots_target",
-    "away_shots_target",
+    # Offensif / défensif
+    'home_goals_avg',
+    'away_goals_avg',
+    'home_goals_conceded_avg',
+    'away_goals_conceded_avg',
+
+    # Forme récente
+    'home_form',
+    'away_form',
+
+    # Différentiels bruts
+    'goals_diff',
+    'defense_diff',
+    'form_diff',
+
+    # Classement (nouvelles features)
+    'classement_diff',
+    'home_rank_norm',
+    'away_rank_norm',
+
+    # Ratios croisés (nouvelles features)
+    'home_attack_vs_away_def',
+    'away_attack_vs_home_def',
+
+    # Tirs cadrés
+    'home_shots_target',
+    'away_shots_target',
 ]
 
 # Hyperparamètres du modèle
