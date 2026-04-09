@@ -1,0 +1,55 @@
+# ============================================================
+#  Football AI Predictor — .gitignore
+# ============================================================
+
+# --- Environnement virtuel Python ---
+football_env/
+venv/
+env/
+.env/
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+
+# --- Données brutes (trop lourdes pour Git) ---
+data/raw/
+data/processed/
+# Pour partager les données : utiliser un lien Google Drive ou DVC
+
+# --- Modèles entraînés (générés automatiquement) ---
+models/*.pkl
+models/*.json
+models/*.bin
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- IDE ---
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# --- Variables d'environnement sensibles ---
+.env
+*.env
+secrets.py
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Coverage et tests ---
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IMPORTANT : ne pas ignorer les fichiers de code dans src/
+# et les notebooks dans notebooks/
