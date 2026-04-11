@@ -109,6 +109,72 @@ def compute_standings(df, date):
 
     return standings['rang'].to_dict()
 
+def get_h2h_stats(df, home_team, away_team, date, n=10):
+    """
+    Calcule les stats des N derniers matchs entre deux équipes.
+    Retourne : win_rate_home, avg_goals_home, avg_goals_away
+    """
+
+    # Filtrer : matchs entre ces deux équipes AVANT la date du match
+    mask = (
+        (df["date"] < date) &
+        ((
+            (df["home_team"] == home_team) & (df["away_team"] == away_team)
+        ) | (
+            (df["home_team"] == away_team) & (df["away_team"] == home_team)
+        ))
+    )
+
+    h2h_matches = df[mask].tail(n)  # On prend les N derniers seulement
+
+    # Si aucun match h2h trouvé → retourner des valeurs neutres
+    if len(h2h_matches) == 0:
+        return {
+            "h2h_win_rate_home":  0.33,  # 1/3 par défaut (équiprobable)
+            "h2h_avg_goals_home": 1.5,   # moyenne Ligue 1
+            "h2h_avg_goals_away": 1.0,
+            "h2h_n_matches":      0      # aucun match trouvé
+        }
+
+    # Compter les victoires de home_team dans ces matchs h2h
+    home_wins = 0
+
+    for _, row in h2h_matches.iterrows():
+        if row["home_team"] == home_team:
+            # home_team jouait à domicile dans ce match
+            if row["home_goals"] > row["away_goals"]:
+                home_wins += 1
+        else:
+            # home_team jouait à l'extérieur dans ce match
+            if row["away_goals"] > row["home_goals"]:
+                home_wins += 1
+
+    # Taux de victoire de home_team sur les h2h
+    win_rate_home = home_wins / len(h2h_matches)
+
+    # Moyenne de buts marqués par home_team dans les h2h
+    home_goals_list = []
+    away_goals_list = []
+
+    for _, row in h2h_matches.iterrows():
+        if row["home_team"] == home_team:
+            home_goals_list.append(row["home_goals"])
+            away_goals_list.append(row["away_goals"])
+        else:
+            # Les rôles sont inversés dans ce match
+            home_goals_list.append(row["away_goals"])
+            away_goals_list.append(row["home_goals"])
+
+    avg_goals_home = sum(home_goals_list) / len(home_goals_list)
+    avg_goals_away = sum(away_goals_list) / len(away_goals_list)
+
+    return {
+        "h2h_win_rate_home":  win_rate_home,
+        "h2h_avg_goals_home": avg_goals_home,
+        "h2h_avg_goals_away": avg_goals_away,
+        "h2h_n_matches":      len(h2h_matches)
+    }
+
 def build_match_features(df):
     """
     Construit le DataFrame de features pour tous les matchs du dataset.
@@ -141,6 +207,8 @@ def build_match_features(df):
         home_rank_norm = (home_rank - 1) / max(n_teams - 1, 1)
         away_rank_norm = (away_rank - 1) / max(n_teams - 1, 1)
 
+        h2h = get_h2h_stats(df, match["home_team"], match["away_team"], match["date"])
+
         row = {
             # --- Tier 1 : Offensif ---
             "home_goals_avg":          home_stats["goals_scored_mean"],
@@ -159,6 +227,12 @@ def build_match_features(df):
             "defense_diff":            away_stats["goals_conceded_mean"] - home_stats["goals_conceded_mean"],
             "form_diff":               all_home["points_sum"]            - all_away["points_sum"],
 
+#---Nouvelle feature h2h
+ "h2h_win_rate_home":  h2h["h2h_win_rate_home"],
+            "h2h_avg_goals_home": h2h["h2h_avg_goals_home"],
+            "h2h_avg_goals_away": h2h["h2h_avg_goals_away"],
+
+            "target": match["target"]
             # --- Tier 1 : Classement ---
             'classement_diff':     away_rank_norm - home_rank_norm,
             'home_rank_norm':      home_rank_norm,
