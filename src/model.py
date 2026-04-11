@@ -35,6 +35,12 @@ FEATURE_COLS = [
     'home_goals_conceded_avg',
     'away_goals_conceded_avg',
 
+     # LIGNES AJOUTÉES : nouvelles features h2h
+    "h2h_win_rate_home",    # % victoires historiques de l'équipe domicile
+    "h2h_avg_goals_home",   # moyenne buts marqués par l'équipe domicile
+    "h2h_avg_goals_away",   # moyenne buts marqués par l'équipe extérieure
+
+
     # Forme récente
     'home_form',
     'away_form',
