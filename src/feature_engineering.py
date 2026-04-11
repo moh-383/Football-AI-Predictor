@@ -228,11 +228,11 @@ def build_match_features(df):
             "form_diff":               all_home["points_sum"]            - all_away["points_sum"],
 
 #---Nouvelle feature h2h
- "h2h_win_rate_home":  h2h["h2h_win_rate_home"],
+            "h2h_win_rate_home":  h2h["h2h_win_rate_home"],
             "h2h_avg_goals_home": h2h["h2h_avg_goals_home"],
             "h2h_avg_goals_away": h2h["h2h_avg_goals_away"],
 
-            "target": match["target"]
+            "target": match["target"],
             # --- Tier 1 : Classement ---
             'classement_diff':     away_rank_norm - home_rank_norm,
             'home_rank_norm':      home_rank_norm,
