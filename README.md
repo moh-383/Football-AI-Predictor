@@ -66,7 +66,7 @@ Expected Goals  →  PSG: 1.82  |  Lyon: 0.71
 ### 1. Cloner le dépôt
 
 ```bash
-git clone https://github.com/TON_USERNAME/football-predictor.git
+git clone https://github.com/moh-383/football-predictor.git
 cd football-predictor
 ```
 
@@ -106,6 +106,8 @@ Résultat attendu :
 ✅ xgboost      2.x.x
 ✅ shap         0.x.x
 ✅ matplotlib   3.x.x
+✅ joblib       1.x.x
+✅ requests     2.x.x
 Tout est installé correctement !
 ```
 
@@ -183,7 +185,7 @@ Lance la validation croisée temporelle, affiche les métriques, et sauvegarde l
 ### Étape 4 — Prédire un match
 
 ```bash
-python src/predictor.py --home "PSG" --away "Marseille"
+python src/predictor.py --home "Paris SG" --away "Marseille"
 ```
 
 ### Tout en une commande (pipeline complet)
@@ -222,7 +224,7 @@ Ce projet est développé à deux. Voici les règles de collaboration pour évit
 
 | Branche | Rôle |
 |---------|------|
-| `main` | Code stable, testé — ne jamais pousser directement |
+| `main` | Code stable, testé : ne jamais pousser directement |
 | `dev` | Branche d'intégration principale |
 | `feature/nom` | Nouvelle fonctionnalité en cours |
 | `fix/nom` | Correction de bug |

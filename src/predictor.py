@@ -1,17 +1,3 @@
-"""
-predictor.py
-------------
-Interface principale de prédiction d'un match.
-
-Utilisation en ligne de commande :
-    python src/predictor.py --home "PSG" --away "Marseille"
-    python src/predictor.py --home "Lyon" --away "Nice" --date "2025-05-10"
-
-Utilisation comme module Python :
-    from predictor import predict_match
-    result = predict_match("PSG", "Marseille", df_historical)
-"""
-
 import argparse
 import os
 import warnings
@@ -24,7 +10,7 @@ from scipy.stats import poisson
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Constantes — doivent être identiques à feature_engineering.py et model.py
+# Constantes : doivent être identiques à feature_engineering.py et model.py
 # ──────────────────────────────────────────────────────────────────────────────
 WINDOW        = 10
 DECAY         = 0.9
@@ -32,7 +18,7 @@ DEFAULT_GOAL  = 1.2
 MIN_MATCHES   = 3
 N_TEAMS       = 20
 
-# Constantes de normalisation — identiques à add_draw_features() dans model.py
+# Constantes de normalisation : identiques à add_draw_features() dans model.py
 GOAL_DIFF_SCALE = 3.0
 MAX_FORM        = 30.0
 FORM_DIFF_SCALE = 30.0
@@ -319,7 +305,7 @@ def predict_match(home_team: str, away_team: str, df_historical: pd.DataFrame,
         raise KeyError(
             f"\n❌ Features présentes dans feature_names.txt mais absentes de predictor.py :\n"
             f"   {missing}\n"
-            f"   → Ajoute-les dans feature_dict ci-dessus."
+            f"   → Mec Ajoute-les dans feature_dict ci-dessus."
         )
 
     # ── Construction de X dans l'ordre exact de feature_names.txt ────────────
@@ -383,7 +369,7 @@ def _print_result(result: dict, home_team: str, away_team: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prédire l'issue d'un match de Ligue 1")
-    parser.add_argument("--home",  required=True,  help="Équipe domicile (ex: PSG)")
+    parser.add_argument("--home",  required=True,  help="Équipe domicile (ex: Paris SG)")
     parser.add_argument("--away",  required=True,  help="Équipe extérieur (ex: Marseille)")
     parser.add_argument("--date",  default=None,   help="Date du match YYYY-MM-DD (défaut: aujourd'hui)")
     parser.add_argument("--data",  default="data/processed/ligue1_clean.csv",

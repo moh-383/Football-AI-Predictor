@@ -1,18 +1,3 @@
-"""
-data_loader.py
---------------
-Téléchargement et nettoyage des données brutes de matchs de football.
-
-Source : football-data.co.uk (CSV gratuits, toutes ligues européennes)
-
-Utilisation :
-    python src/data_loader.py
-
-Sortie :
-    data/raw/ligue1_XXXX.csv        — CSV bruts par saison
-    data/processed/ligue1_clean.csv — Données nettoyées et triées par date
-"""
-
 import pandas as pd
 import requests
 import os

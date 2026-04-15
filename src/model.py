@@ -1,24 +1,3 @@
-"""
-model.py
---------
-Entraînement, validation temporelle et sauvegarde du modèle XGBoost.
-
-Nouveautés v2.1 :
-  - FEATURE_COLS mis à jour (H2H, fatigue, ratios croisés)
-  - GridSearch temporellement cohérent (TimeSeriesSplit)
-  - Analyse SHAP pour identifier les features "bruit"
-  - Export des métriques en JSON pour suivi CI/CD
-
-Stratégie de validation : TimeSeriesSplit — on s'entraîne toujours sur
-le passé, on valide sur le futur. Jamais de split aléatoire !
-
-Utilisation :
-    python src/model.py [--tune]   # --tune active la recherche d'hyperparamètres
-
-Entrée  : data/processed/features.csv
-Sortie  : models/xgb_model.pkl, models/feature_names.txt, models/metrics.json
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -39,11 +18,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Features (ordre strict — doit correspondre à feature_engineering.py)
+# Features 
 # ──────────────────────────────────────────────────────────────────────────────
-# Supprimées car colinéaires/bruit : home_rank_norm, away_rank_norm,
-# home_attack_vs_away_def, away_attack_vs_home_def, fatigue_diff, low_stakes_proxy
-# → 15 features orthogonales au lieu de 21
 FEATURE_COLS: list[str] = [
     "home_goals_avg",
     "away_goals_avg",
@@ -112,21 +88,21 @@ def add_draw_features(features_df: pd.DataFrame) -> pd.DataFrame:
     """
     df = features_df.copy()
 
-    # 1. Symétrie de force — constante domaine fixe, pas de .max() sur le dataset
+    # 1. Symétrie de force : constante domaine fixe, pas de .max() sur le dataset
     #    goals_diff rolling typiquement dans [-2.5, 2.5] → on sature à 3.0
     GOAL_DIFF_SCALE = 3.0
     df["strength_symmetry"] = (
         1.0 - (df["goals_diff"].abs() / GOAL_DIFF_SCALE).clip(0, 1)
     )
 
-    # 2. Draw prior — forme basse des deux équipes (constante fixe 30 pts max)
+    # 2. Draw prior : forme basse des deux équipes (constante fixe 30 pts max)
     MAX_FORM = 30.0
     df["draw_prior"] = 1.0 - (
         (df["home_form"].clip(0, MAX_FORM) + df["away_form"].clip(0, MAX_FORM))
         / (2 * MAX_FORM)
     )
 
-    # 3. Low-stakes proxy — classement_diff déjà dans [-1,1], form_diff borné
+    # 3. Low-stakes proxy : classement_diff déjà dans [-1,1], form_diff borné
     FORM_DIFF_SCALE = 30.0
     df["low_stakes_proxy"] = (
         (1.0 - df["classement_diff"].abs().clip(0, 1)) *

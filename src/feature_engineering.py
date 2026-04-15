@@ -1,25 +1,3 @@
-"""
-feature_engineering.py
------------------------
-Construction vectorisée de toutes les variables du modèle.
-
-Optimisations v2.1 :
-  - Suppression des boucles iterrows / compute_standings O(n²)
-  - Rolling windows vectorisées via groupby + shift(1)
-  - Pondération exponentielle (exponential decay)
-  - Feature H2H (confrontations directes)
-  - Feature days_since_last_match (fatigue)
-
-Principe fondamental : toutes les stats sont calculées AVANT la date
-du match (shift(1) exclut le match en cours → zéro data leakage).
-
-Utilisation :
-    python src/feature_engineering.py
-
-Entrée  : data/processed/ligue1_clean.csv
-Sortie  : data/processed/features.csv
-"""
-
 from __future__ import annotations
 
 import os
