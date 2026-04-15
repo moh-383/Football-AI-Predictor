@@ -106,7 +106,7 @@ def clean_data(df):
 
 if __name__ == "__main__":
     print("\n=== Téléchargement des données Ligue 1 ===\n")
-    seasons = ["1920", "2021", "2122", "2223", "2324"]
+    seasons = ["1617", "1718", "1819", "1920", "2021", "2122", "2223", "2324"]
     df_raw = download_ligue1_data(seasons)
 
     print(f"\nTotal brut : {len(df_raw)} matchs, {df_raw.shape[1]} colonnes")

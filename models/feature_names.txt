@@ -8,9 +8,8 @@ goals_diff
 defense_diff
 form_diff
 classement_diff
-home_rank_norm
-away_rank_norm
-home_attack_vs_away_def
-away_attack_vs_home_def
 home_shots_target
 away_shots_target
+h2h_home_win_rate
+strength_symmetry
+draw_prior
