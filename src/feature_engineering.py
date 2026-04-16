@@ -1,34 +1,42 @@
+"""
+feature_engineering.py — Football AI Predictor v3.0
+=====================================================
+Changements majeurs vs v2.x :
+  - h2h_draw_rate : taux de nul sur les 10 dernières confrontations directes
+  - Decay rolling : _weighted_mean(decay=0.9) sur TOUTES les stats (déjà présent, renforci)
+  - Anti-leakage strict : shift(1) implicite par exclusion du match courant dans la fenêtre
+  - fatigue_diff : déjà présent, maintenant inclus dans FEATURE_COLS du modèle
+  - home_attack_vs_away_def / away_attack_vs_home_def : ratios croisés
+  - Prépare les colonnes nécessaires à Phase 5 LSTM
+"""
+
 from __future__ import annotations
 
 import os
+import time
 import numpy as np
 import pandas as pd
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Constantes
+# Constantes globales
 # ──────────────────────────────────────────────────────────────────────────────
-WINDOW       = 10          # matchs récents pour les rolling stats
-DECAY        = 0.9         # facteur de pondération exponentielle (par match)
-DEFAULT_GOAL = 1.2         # lambda par défaut si historique insuffisant
+WINDOW       = 10          # matchs récents pour rolling stats
+DECAY        = 0.9         # facteur de décroissance exponentielle par match
+DEFAULT_GOAL = 1.2         # lambda Poisson par défaut (historique < MIN_MATCHES)
 MIN_MATCHES  = 3           # seuil minimum pour utiliser les stats calculées
+H2H_WINDOW   = 10          # confrontations directes max pour H2H
+N_TEAMS      = 20
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 1. Utilitaires vectorisés
+# Utilitaires
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _weighted_mean(series: pd.Series, decay: float = DECAY) -> float:
     """
-    Moyenne pondérée exponentiellement : le match le plus récent a le poids 1,
-    le précédent decay^1, puis decay^2, etc.
-
-    Args:
-        series: valeurs ordonnées du plus ancien au plus récent
-        decay:  facteur de décroissance (0 < decay ≤ 1)
-
-    Returns:
-        float: moyenne pondérée, ou DEFAULT_GOAL si série vide
+    Moyenne pondérée exponentiellement, du plus ancien au plus récent.
+    Le match le plus récent a le poids 1, le précédent decay^1, etc.
     """
     n = len(series)
     if n == 0:
@@ -39,14 +47,8 @@ def _weighted_mean(series: pd.Series, decay: float = DECAY) -> float:
 
 def _build_team_match_log(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Construit un log unifié (une ligne par équipe par match) trié
-    chronologiquement. C'est la base de tous les rolling vectorisés.
-
-    Colonnes produites :
-        team, date, goals_scored, goals_conceded, points, venue
-
-    Returns:
-        pd.DataFrame trié par (team, date)
+    Construit un log unifié (une ligne par équipe par match).
+    Colonnes produites : team, date, goals_scored, goals_conceded, points, venue
     """
     home = df[["date", "home_team", "home_goals", "away_goals"]].copy()
     home.columns = ["date", "team", "goals_scored", "goals_conceded"]
@@ -57,18 +59,15 @@ def _build_team_match_log(df: pd.DataFrame) -> pd.DataFrame:
     away["venue"] = "away"
 
     log = pd.concat([home, away], ignore_index=True)
-
-    # Points : 3 = victoire, 1 = nul, 0 = défaite
     log["points"] = np.where(
         log["goals_scored"] > log["goals_conceded"], 3,
-        np.where(log["goals_scored"] == log["goals_conceded"], 1, 0)
+        np.where(log["goals_scored"] == log["goals_conceded"], 1, 0),
     )
-
     return log.sort_values(["team", "date"]).reset_index(drop=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 2. Rolling stats vectorisées (zéro boucle Python)
+# Rolling stats vectorisées (anti-leakage garanti : fenêtre = matchs AVANT i)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def compute_rolling_stats(
@@ -77,85 +76,76 @@ def compute_rolling_stats(
     decay: float = DECAY,
 ) -> pd.DataFrame:
     """
-    Calcule pour chaque match les statistiques de l'équipe sur les
-    `window` matchs précédents (shift(1) → pas de leakage).
+    Pour chaque match, calcule les statistiques de l'équipe sur les `window`
+    matchs PRÉCÉDENTS (exclusion stricte du match courant → zéro leakage).
 
-    Les statistiques incluent :
-        - goals_scored_mean / goals_conceded_mean (weighted)
-        - form_sum (somme des points sur la fenêtre)
-        - days_since_last_match
-
-    Returns:
-        pd.DataFrame indexé par (team, date) avec les stats pré-calculées
+    Stats calculées :
+        - goals_scored_mean    : moyenne pondérée (decay) des buts marqués
+        - goals_conceded_mean  : moyenne pondérée des buts encaissés
+        - form_sum             : somme des points sur la fenêtre
+        - days_since_last      : jours depuis le dernier match (fatigue)
     """
-    log = _build_team_match_log(df)
-
+    log     = _build_team_match_log(df)
     results = []
 
     for team, grp in log.groupby("team"):
         grp = grp.sort_values("date").reset_index(drop=True)
-        n = len(grp)
+        n   = len(grp)
 
-        scored_mean    = np.full(n, DEFAULT_GOAL)
-        conceded_mean  = np.full(n, DEFAULT_GOAL)
-        form_sum       = np.zeros(n)
-        days_since_last = np.full(n, 7.0)   # valeur par défaut : 7 jours
+        scored_mean     = np.full(n, DEFAULT_GOAL)
+        conceded_mean   = np.full(n, DEFAULT_GOAL)
+        form_sum        = np.zeros(n)
+        days_since_last = np.full(n, 7.0)
 
         for i in range(n):
             start = max(0, i - window)
-            past  = grp.iloc[start:i]           # exclut le match courant (shift implicite)
+            past  = grp.iloc[start:i]   # EXCLUSION du match i → anti-leakage
 
             if len(past) >= MIN_MATCHES:
                 scored_mean[i]   = _weighted_mean(past["goals_scored"],   decay)
                 conceded_mean[i] = _weighted_mean(past["goals_conceded"], decay)
                 form_sum[i]      = past["points"].sum()
             elif len(past) > 0:
-                # Historique insuffisant → on utilise quand même ce qu'on a
                 scored_mean[i]   = past["goals_scored"].mean()
                 conceded_mean[i] = past["goals_conceded"].mean()
                 form_sum[i]      = past["points"].sum()
+            # else : valeurs par défaut déjà assignées
 
             if i > 0:
-                delta = (grp.iloc[i]["date"] - grp.iloc[i - 1]["date"]).days
-                days_since_last[i] = float(delta)
+                days_since_last[i] = float(
+                    (grp.iloc[i]["date"] - grp.iloc[i - 1]["date"]).days
+                )
 
-        grp = grp.copy()
-        grp["goals_scored_mean"]    = scored_mean
-        grp["goals_conceded_mean"]  = conceded_mean
-        grp["form_sum"]             = form_sum
-        grp["days_since_last"]      = days_since_last
+        grp                       = grp.copy()
+        grp["goals_scored_mean"]  = scored_mean
+        grp["goals_conceded_mean"]= conceded_mean
+        grp["form_sum"]           = form_sum
+        grp["days_since_last"]    = days_since_last
         results.append(grp)
 
     return pd.concat(results, ignore_index=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. Classement vectorisé (O(n) au lieu de O(n²))
+# Classement vectorisé
 # ──────────────────────────────────────────────────────────────────────────────
 
 def compute_all_standings(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calcule le classement cumulatif après chaque journée de match.
-
-    Stratégie O(n log n) :
-        1. Pour chaque match, on incrémente points et goal difference.
-        2. On calcule le rang par date (dense rank descendant).
-
-    Returns:
-        pd.DataFrame avec colonnes [date, team, points_cumul, gd_cumul, rang]
+    Classement cumulatif AVANT chaque match (shift(1) explicite).
+    Retourne : date, team, points_before, gd_before, rang
     """
     log = _build_team_match_log(df)
     log["gd"] = log["goals_scored"] - log["goals_conceded"]
-
     log = log.sort_values(["team", "date"]).reset_index(drop=True)
+
     log["points_cumul"] = log.groupby("team")["points"].cumsum()
     log["gd_cumul"]     = log.groupby("team")["gd"].cumsum()
 
-    # Rang par date : on veut le classement AVANT le match → shift(1)
+    # Points AVANT le match courant (shift anti-leakage)
     log["points_before"] = log.groupby("team")["points_cumul"].shift(1).fillna(0)
     log["gd_before"]     = log.groupby("team")["gd_cumul"].shift(1).fillna(0)
 
-    # Rang dense par date
     log = log.sort_values(["date", "team"]).reset_index(drop=True)
     log["rang"] = (
         log.groupby("date")["points_before"]
@@ -167,174 +157,176 @@ def compute_all_standings(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 4. H2H (confrontations directes)
+# H2H v3.0 — win_rate + draw_rate sur les H2H_WINDOW dernières confrontations
 # ──────────────────────────────────────────────────────────────────────────────
 
 def compute_h2h_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Pour chaque match, calcule le taux de victoire historique de l'équipe
-    domicile contre l'équipe extérieure (sur tous les matchs passés entre elles).
+    Pour chaque match, calcule sur les H2H_WINDOW confrontations PASSÉES
+    entre home_team et away_team (dans les deux sens) :
+        - h2h_home_win_rate : taux de victoire de home_team
+        - h2h_draw_rate     : taux de nul  ← NOUVEAU v3.0
 
-    Returns:
-        pd.DataFrame avec colonnes [date, home_team, away_team,
-                                    h2h_home_win_rate, h2h_n_matches]
+    Anti-leakage : seuls les matchs STRITEMENT ANTÉRIEURS à la date courante
+    sont utilisés (df["date"] < d).
     """
-    records = []
-
-    # Créer un index (home, away) → liste de résultats passés
+    records  = []
     df_sorted = df.sort_values("date").reset_index(drop=True)
 
-    for i, row in df_sorted.iterrows():
+    for _, row in df_sorted.iterrows():
         h, a, d = row["home_team"], row["away_team"], row["date"]
 
-        # Matchs passés entre ces deux équipes (dans les deux sens)
-        past_h_home = df_sorted[
+        past_hh = df_sorted[
             (df_sorted["home_team"] == h) &
             (df_sorted["away_team"] == a) &
             (df_sorted["date"] < d)
-        ]
-        past_h_away = df_sorted[
+        ].tail(H2H_WINDOW)
+
+        past_ha = df_sorted[
             (df_sorted["home_team"] == a) &
             (df_sorted["away_team"] == h) &
             (df_sorted["date"] < d)
-        ]
+        ].tail(H2H_WINDOW)
 
-        total = len(past_h_home) + len(past_h_away)
+        total = len(past_hh) + len(past_ha)
 
         if total == 0:
-            h2h_win_rate = 0.45   # prior : avantage domicile moyen en L1
+            # Prior empirique Ligue 1 (5 saisons) : ~45% dom / ~26% nul / ~29% ext
+            h2h_win_rate  = 0.45
+            h2h_draw_rate = 0.26
         else:
-            h_wins = (past_h_home["result"] == "H").sum() + \
-                     (past_h_away["result"] == "A").sum()
-            h2h_win_rate = float(h_wins / total)
+            h_wins  = (past_hh["result"] == "H").sum() + (past_ha["result"] == "A").sum()
+            draws   = (past_hh["result"] == "D").sum() + (past_ha["result"] == "D").sum()
+            h2h_win_rate  = float(h_wins / total)
+            h2h_draw_rate = float(draws / total)
 
         records.append({
-            "date":            d,
-            "home_team":       h,
-            "away_team":       a,
+            "date":           d,
+            "home_team":      h,
+            "away_team":      a,
             "h2h_home_win_rate": h2h_win_rate,
-            "h2h_n_matches":   total,
+            "h2h_draw_rate":     h2h_draw_rate,   # NOUVEAU
+            "h2h_n_matches":  total,
         })
 
     return pd.DataFrame(records)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 5. Construction finale des features
+# Pipeline principal
 # ──────────────────────────────────────────────────────────────────────────────
 
 def build_match_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Construit le DataFrame de features pour tous les matchs.
+    Construit le DataFrame de features v3.0 pour tous les matchs.
 
     Pipeline :
-        1. Rolling stats vectorisées (goals, form, fatigue)
+        1. Rolling stats pondérées (goals, form, fatigue)
         2. Classements vectorisés
-        3. H2H
-        4. Merge et construction des différentiels
+        3. H2H v3 (win_rate + draw_rate)
+        4. Assemblage + différentiels + ratios croisés
 
-    Args:
-        df: Données nettoyées (output de data_loader.py)
-
-    Returns:
-        pd.DataFrame de features prêtes pour l'entraînement
+    Garanties anti-leakage :
+        - Fenêtre rolling exclut le match courant (past = grp.iloc[start:i])
+        - Classement calculé avec points_before (shift 1)
+        - H2H filtre strictement df["date"] < d
     """
-    print("  [1/4] Calcul des rolling stats (decay=%.1f, window=%d)…" % (DECAY, WINDOW))
+    print(f"  [1/4] Rolling stats (decay={DECAY}, window={WINDOW})…")
     stats = compute_rolling_stats(df, window=WINDOW, decay=DECAY)
 
-    # Séparer stats domicile / extérieur
-    home_stats = stats[stats["venue"] == "home"][
-        ["date", "team", "goals_scored_mean", "goals_conceded_mean",
-         "form_sum", "days_since_last"]
-    ].copy()
-    away_stats = stats[stats["venue"] == "away"][
-        ["date", "team", "goals_scored_mean", "goals_conceded_mean",
-         "form_sum", "days_since_last"]
-    ].copy()
+    home_stats = (
+        stats[stats["venue"] == "home"]
+        [["date", "team", "goals_scored_mean", "goals_conceded_mean",
+          "form_sum", "days_since_last"]]
+        .copy()
+        .rename(columns={
+            "team": "home_team",
+            "goals_scored_mean":   "home_goals_avg",
+            "goals_conceded_mean": "home_goals_conceded_avg",
+            "form_sum":            "home_form",
+            "days_since_last":     "home_days_rest",
+        })
+    )
 
-    # Renommage pour le merge
-    home_stats.columns = [
-        "date", "home_team",
-        "home_goals_avg", "home_goals_conceded_avg",
-        "home_form", "home_days_rest"
-    ]
-    away_stats.columns = [
-        "date", "away_team",
-        "away_goals_avg", "away_goals_conceded_avg",
-        "away_form", "away_days_rest"
-    ]
+    away_stats = (
+        stats[stats["venue"] == "away"]
+        [["date", "team", "goals_scored_mean", "goals_conceded_mean",
+          "form_sum", "days_since_last"]]
+        .copy()
+        .rename(columns={
+            "team": "away_team",
+            "goals_scored_mean":   "away_goals_avg",
+            "goals_conceded_mean": "away_goals_conceded_avg",
+            "form_sum":            "away_form",
+            "days_since_last":     "away_days_rest",
+        })
+    )
 
-    print("  [2/4] Calcul des classements vectorisés…")
+    print("  [2/4] Classements vectorisés…")
     standings = compute_all_standings(df)
-    standings_pivot = standings.rename(columns={"team": "home_team", "rang": "home_rang"})
-    standings_pivot_away = standings.rename(columns={"team": "away_team", "rang": "away_rang"})
+    std_home  = standings.rename(columns={"team": "home_team", "rang": "home_rang"})
+    std_away  = standings.rename(columns={"team": "away_team", "rang": "away_rang"})
 
-    print("  [3/4] Calcul des H2H…")
+    print("  [3/4] H2H v3 (win_rate + draw_rate)…")
     h2h = compute_h2h_features(df)
 
-    print("  [4/4] Assemblage des features…")
-    feats = df[["date", "home_team", "away_team",
-                "home_shots_target", "away_shots_target",
-                "season", "target"]].copy()
+    print("  [4/4] Assemblage…")
+    feats = df[[
+        "date", "home_team", "away_team",
+        "home_shots_target", "away_shots_target",
+        "season", "target",
+    ]].copy()
 
     feats = feats.merge(home_stats, on=["date", "home_team"], how="left")
     feats = feats.merge(away_stats, on=["date", "away_team"], how="left")
 
-    # Classement domicile
     feats = feats.merge(
-        standings_pivot[["date", "home_team", "home_rang"]],
-        on=["date", "home_team"], how="left"
+        std_home[["date", "home_team", "home_rang"]],
+        on=["date", "home_team"], how="left",
     )
-    # Classement extérieur
     feats = feats.merge(
-        standings_pivot_away[["date", "away_team", "away_rang"]],
-        on=["date", "away_team"], how="left"
+        std_away[["date", "away_team", "away_rang"]],
+        on=["date", "away_team"], how="left",
     )
-
     feats = feats.merge(h2h, on=["date", "home_team", "away_team"], how="left")
 
-    # Normalisation du rang (0 = premier, 1 = dernier)
-    n_teams = 20
-    feats["home_rank_norm"]  = (feats["home_rang"].fillna(10) - 1) / (n_teams - 1)
-    feats["away_rank_norm"]  = (feats["away_rang"].fillna(10) - 1) / (n_teams - 1)
+    # Normalisation du rang [0=1er, 1=dernier]
+    feats["home_rank_norm"]  = (feats["home_rang"].fillna(10) - 1) / (N_TEAMS - 1)
+    feats["away_rank_norm"]  = (feats["away_rang"].fillna(10) - 1) / (N_TEAMS - 1)
     feats["classement_diff"] = feats["away_rank_norm"] - feats["home_rank_norm"]
 
     # Différentiels
-    feats["goals_diff"]    = feats["home_goals_avg"]          - feats["away_goals_avg"]
-    feats["defense_diff"]  = feats["away_goals_conceded_avg"] - feats["home_goals_conceded_avg"]
-    feats["form_diff"]     = feats["home_form"]               - feats["away_form"]
-    feats["fatigue_diff"]  = feats["away_days_rest"]          - feats["home_days_rest"]
+    feats["goals_diff"]   = feats["home_goals_avg"]          - feats["away_goals_avg"]
+    feats["defense_diff"] = feats["away_goals_conceded_avg"] - feats["home_goals_conceded_avg"]
+    feats["form_diff"]    = feats["home_form"]               - feats["away_form"]
+    feats["fatigue_diff"] = feats["away_days_rest"]          - feats["home_days_rest"]
 
-    # Ratios croisés attaque/défense
+    # Ratios croisés attaque/défense (valeur > 1 = avantage offensif)
     feats["home_attack_vs_away_def"] = (
-        feats["home_goals_avg"] /
-        feats["away_goals_conceded_avg"].clip(lower=0.3)
+        feats["home_goals_avg"] / feats["away_goals_conceded_avg"].clip(lower=0.3)
     )
     feats["away_attack_vs_home_def"] = (
-        feats["away_goals_avg"] /
-        feats["home_goals_conceded_avg"].clip(lower=0.3)
+        feats["away_goals_avg"] / feats["home_goals_conceded_avg"].clip(lower=0.3)
     )
 
     return feats.sort_values("date").reset_index(drop=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Entrée principale
+# CLI
 # ──────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import time
-
-    print("\n=== Construction des features v2.1 ===\n")
+    print("\n=== Feature Engineering v3.0 ===\n")
 
     input_path = "data/processed/ligue1_clean.csv"
     if not os.path.exists(input_path):
         raise FileNotFoundError(
-            f"{input_path} introuvable. Lance d'abord : python src/data_loader.py"
+            f"{input_path} introuvable → lance d'abord : python src/data_loader.py"
         )
 
     df = pd.read_csv(input_path, parse_dates=["date"])
-    print(f"Données chargées : {len(df)} matchs\n")
+    print(f"Données : {len(df)} matchs ({df['date'].min().date()} → {df['date'].max().date()})\n")
 
     t0 = time.time()
     features_df = build_match_features(df)
@@ -342,12 +334,22 @@ if __name__ == "__main__":
 
     features_df = features_df.dropna(subset=["target"])
 
-    output_path = "data/processed/features.csv"
     os.makedirs("data/processed", exist_ok=True)
-    features_df.to_csv(output_path, index=False)
+    out = "data/processed/features.csv"
+    features_df.to_csv(out, index=False)
 
-    print(f"\n✅ Features sauvegardées : {output_path}")
-    print(f"   {len(features_df)} matchs · {features_df.shape[1]} colonnes")
-    print(f"   Temps de calcul : {elapsed:.1f}s")
-    print(f"\nDistribution de la cible :")
-    print(features_df["target"].value_counts().rename({0: "Ext gagne", 1: "Nul", 2: "Dom gagne"}))
+    print(f"\n✅ {out}")
+    print(f"   {len(features_df)} matchs · {features_df.shape[1]} colonnes · {elapsed:.1f}s")
+    print("\nDistribution cible :")
+    print(
+        features_df["target"]
+        .value_counts()
+        .rename({0: "Ext gagne", 1: "Nul", 2: "Dom gagne"})
+        .to_string()
+    )
+    print()
+
+    # Vérification des nouvelles colonnes v3
+    for col in ["h2h_draw_rate", "fatigue_diff", "home_attack_vs_away_def"]:
+        null_pct = features_df[col].isna().mean()
+        print(f"  {col}: {null_pct:.1%} NaN")

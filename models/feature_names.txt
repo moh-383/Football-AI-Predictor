@@ -11,5 +11,9 @@ classement_diff
 home_shots_target
 away_shots_target
 h2h_home_win_rate
+h2h_draw_rate
+fatigue_diff
 strength_symmetry
 draw_prior
+home_attack_vs_away_def
+away_attack_vs_home_def
