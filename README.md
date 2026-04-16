@@ -293,10 +293,10 @@ git commit -m "data: ajouter saisons 2019-2020 Ligue 1"
 ## 🗓️ Roadmap
 
 - [x] Structure du projet et README
-- [v] **Phase 1** — Collecte et exploration des données (S1–S2)
-- [v] **Phase 2** — Feature engineering complet (S3–S4)
-- [] **Phase 3** — Entraînement XGBoost + validation (S5–S6)
-- [] **Phase 4** — Interface de prédiction (S7–S8)
+- [x] **Phase 1** — Collecte et exploration des données (S1–S2)
+- [x] **Phase 2** — Feature engineering complet (S3–S4)
+- [ ] **Phase 3** — Entraînement XGBoost + validation (S5–S6)
+- [ ] **Phase 4** — Interface de prédiction (S7–S8)
 - [ ] **Phase 5** — Extension LSTM sur séquences (S9–S10)
 - [ ] **Phase 6** — Pipeline automatisé + API temps réel (S11–S12)
 
