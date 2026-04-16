@@ -158,7 +158,7 @@ football-predictor/
 
 ## 🚀 Utilisation rapide
 
-### Étape 1 — Télécharger les données
+### Étape 1 : Télécharger les données
 
 ```bash
 python src/data_loader.py
@@ -166,7 +166,7 @@ python src/data_loader.py
 
 Ce script télécharge automatiquement les 5 dernières saisons de Ligue 1 et les sauvegarde dans `data/raw/`.
 
-### Étape 2 — Construire les features
+### Étape 2 : Construire les features
 
 ```bash
 python src/feature_engineering.py
@@ -174,7 +174,7 @@ python src/feature_engineering.py
 
 Génère `data/processed/features.csv` avec toutes les variables du modèle.
 
-### Étape 3 — Entraîner le modèle
+### Étape 3 : Entraîner le modèle
 
 ```bash
 python src/model.py
@@ -182,7 +182,7 @@ python src/model.py
 
 Lance la validation croisée temporelle, affiche les métriques, et sauvegarde le modèle dans `models/xgb_model.pkl`.
 
-### Étape 4 — Prédire un match
+### Étape 4 : Prédire un match
 
 ```bash
 python src/predictor.py --home "Paris SG" --away "Marseille"
@@ -293,10 +293,10 @@ git commit -m "data: ajouter saisons 2019-2020 Ligue 1"
 ## 🗓️ Roadmap
 
 - [x] Structure du projet et README
-- [ ] **Phase 1** — Collecte et exploration des données (S1–S2)
-- [ ] **Phase 2** — Feature engineering complet (S3–S4)
-- [ ] **Phase 3** — Entraînement XGBoost + validation (S5–S6)
-- [ ] **Phase 4** — Interface de prédiction (S7–S8)
+- [v] **Phase 1** — Collecte et exploration des données (S1–S2)
+- [v] **Phase 2** — Feature engineering complet (S3–S4)
+- [] **Phase 3** — Entraînement XGBoost + validation (S5–S6)
+- [] **Phase 4** — Interface de prédiction (S7–S8)
 - [ ] **Phase 5** — Extension LSTM sur séquences (S9–S10)
 - [ ] **Phase 6** — Pipeline automatisé + API temps réel (S11–S12)
 
